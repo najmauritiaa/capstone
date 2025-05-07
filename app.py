@@ -13,7 +13,7 @@ from scipy.sparse import hstack
 # Load dataset
 df = pd.read_csv("global-hotels.csv")
 
-# Preprocessing code (same as before)
+# Preprocessing
 df['Number_Reviews'] = df['Number_Reviews'].replace({',': ''}, regex=True).astype(int)
 df['Room_Type_original'] = df['Room_Type']
 mask_misplaced = df['Price'].str.contains('[a-zA-Z]', na=False) & df['Room_Type'].isna()
@@ -63,19 +63,31 @@ final_features = hstack([tfidf_matrix, numerical_scaled])
 
 # Recommendation function
 def recommend_by_pref(df_knn_imputed, tfidf, scaler, final_features,
-                      rating, score, number_reviews, price_range, top_n=5):
+                      rating, score, number_reviews, price_range,
+                      location, room_type, top_n=5):
+    # Filter by location and room type
+    df_filtered = df_knn_imputed[
+        (df_knn_imputed['City'] == location) &
+        (df_knn_imputed['Room_Type'] == room_type) &
+        (df_knn_imputed['Price'].between(*price_range))
+    ]
+    
+    if df_filtered.empty:
+        return pd.DataFrame(columns=['Hotel_Name', 'City', 'Room_Type', 'Rating', 'Score', 'Number_Reviews', 'Price', 'sim_score'])
+
+    # Build preference vector
     pref_text = f"{rating}"
     pref_tfidf = tfidf.transform([pref_text])
-
     avg_price = sum(price_range) / 2
     pref_num = scaler.transform([[score, number_reviews, avg_price]])
-
     pref_vec = hstack([pref_tfidf, pref_num])
 
+    # Similarity computation
     sims = cosine_similarity(pref_vec, final_features).flatten()
-
     df_knn_imputed['sim_score'] = sims
-    df_filtered = df_knn_imputed[df_knn_imputed['Price'].between(*price_range)]
+
+    # Use only filtered entries
+    df_filtered = df_knn_imputed.loc[df_filtered.index]
     df_sorted = df_filtered.sort_values(by='sim_score', ascending=False)
 
     return df_sorted.head(top_n)[['Hotel_Name', 'City', 'Room_Type', 'Rating', 'Score', 'Number_Reviews', 'Price', 'sim_score']]
@@ -85,6 +97,8 @@ st.title('Hotel Recommendation System')
 st.write('Find the best hotels based on your preferences')
 
 # Input Fields
+location = st.selectbox('Select City', sorted(df_knn_imputed['City'].unique()))
+room_type = st.selectbox('Select Room Type', sorted(df_knn_imputed['Room_Type'].unique()))
 rating = st.selectbox('Select Hotel Rating', ['Very Good', 'Good', 'Excellent', 'Average', 'Poor'])
 score = st.slider('Hotel Score', 1.0, 10.0, 8.0)
 number_reviews = st.slider('Number of Reviews', 0, 5000, 1000)
@@ -101,8 +115,13 @@ if st.button('Get Recommendations'):
         score=score,
         number_reviews=number_reviews,
         price_range=price_range,
+        location=location,
+        room_type=room_type,
         top_n=5
     )
 
-    st.write("Here are the top 5 recommended hotels:")
-    st.dataframe(recommendations)
+    if recommendations.empty:
+        st.warning("No recommendations found for the selected criteria.")
+    else:
+        st.success("Here are the top 5 recommended hotels:")
+        st.dataframe(recommendations)
