@@ -13,7 +13,7 @@ from scipy.sparse import hstack
 # Load dataset
 df = pd.read_csv("global-hotels.csv")
 
-# Preprocessing
+# Preprocessing code (same as before)
 df['Number_Reviews'] = df['Number_Reviews'].replace({',': ''}, regex=True).astype(int)
 df['Room_Type_original'] = df['Room_Type']
 mask_misplaced = df['Price'].str.contains('[a-zA-Z]', na=False) & df['Room_Type'].isna()
@@ -61,64 +61,48 @@ tfidf_matrix = tfidf.fit_transform(df_knn_imputed['combined_features'])
 # Combine TF-IDF matrix with numeric features
 final_features = hstack([tfidf_matrix, numerical_scaled])
 
-# Recommendation Function
+# Recommendation function
 def recommend_by_pref(df_knn_imputed, tfidf, scaler, final_features,
-                      city, room_type, rating, top_n=5):
-    df_filtered = df_knn_imputed[
-        (df_knn_imputed['City'] == city) &
-        (df_knn_imputed['Room_Type'] == room_type)
-    ]
-
-    if df_filtered.empty:
-        return pd.DataFrame(columns=[
-            'Hotel_Name', 'City', 'Room_Type', 'Rating',
-            'Score', 'Number_Reviews', 'Price', 'sim_score'
-        ])
-
+                      rating, score, number_reviews, price_range, top_n=5):
     pref_text = f"{rating}"
     pref_tfidf = tfidf.transform([pref_text])
 
-    avg_score = df_filtered['Score'].mean()
-    avg_reviews = df_filtered['Number_Reviews'].mean()
-    avg_price = df_filtered['Price'].mean()
-    pref_num = scaler.transform([[avg_score, avg_reviews, avg_price]])
+    avg_price = sum(price_range) / 2
+    pref_num = scaler.transform([[score, number_reviews, avg_price]])
 
     pref_vec = hstack([pref_tfidf, pref_num])
 
-    # ✅ Perbaikan: ubah label index ke posisi integer dengan aman
-    filtered_positions = df_knn_imputed.index.get_indexer(df_filtered.index)
+    sims = cosine_similarity(pref_vec, final_features).flatten()
 
-    # Hitung similarity
-    sims = cosine_similarity(pref_vec, final_features[filtered_positions, :]).flatten()
+    df_knn_imputed['sim_score'] = sims
+    df_filtered = df_knn_imputed[df_knn_imputed['Price'].between(*price_range)]
+    df_sorted = df_filtered.sort_values(by='sim_score', ascending=False)
 
-    df_filtered = df_filtered.copy()
-    df_filtered['sim_score'] = sims
+    return df_sorted.head(top_n)[['Hotel_Name', 'City', 'Room_Type', 'Rating', 'Score', 'Number_Reviews', 'Price', 'sim_score']]
 
-    return df_filtered.sort_values(by='sim_score', ascending=False).head(top_n)[
-        ['Hotel_Name', 'City', 'Room_Type', 'Rating', 'Score', 'Number_Reviews', 'Price', 'sim_score']
-    ]
+# Streamlit UI
+st.title('Hotel Recommendation System')
+st.write('Find the best hotels based on your preferences')
 
-# === Streamlit UI ===
-st.title("Hotel Recommendation System ✈️🏨")
+# Input Fields
+rating = st.selectbox('Select Hotel Rating', ['Very Good', 'Good', 'Excellent', 'Average', 'Poor'])
+score = st.slider('Hotel Score', 1.0, 10.0, 8.0)
+number_reviews = st.slider('Number of Reviews', 0, 5000, 1000)
+price_range = st.slider('Price Range', 0, 1000, (100, 300))
 
-city = st.selectbox('Pilih Kota', df_knn_imputed['City'].dropna().unique())
-room_type = st.selectbox('Pilih Tipe Kamar', df_knn_imputed['Room_Type'].dropna().unique())
-rating = st.selectbox('Pilih Rating Hotel yang Kamu Inginkan', ['Excellent', 'Very Good', 'Good', 'Average', 'Poor'])
-
-if st.button('Tampilkan Rekomendasi'):
+# Get recommendations
+if st.button('Get Recommendations'):
     recommendations = recommend_by_pref(
         df_knn_imputed=df_knn_imputed,
         tfidf=tfidf,
         scaler=scaler,
         final_features=final_features,
-        city=city,
-        room_type=room_type,
         rating=rating,
+        score=score,
+        number_reviews=number_reviews,
+        price_range=price_range,
         top_n=5
     )
 
-    if recommendations.empty:
-        st.warning("Tidak ditemukan hotel yang cocok dengan preferensimu.")
-    else:
-        st.success("Berikut rekomendasi hotel terbaik untukmu:")
-        st.dataframe(recommendations)
+    st.write("Here are the top 5 recommended hotels:")
+    st.dataframe(recommendations)
