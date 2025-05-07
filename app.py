@@ -80,23 +80,45 @@ def recommend_by_pref(df_knn_imputed, tfidf, scaler, final_features,
 
     return df_sorted.head(top_n)[['Hotel_Name', 'City', 'Room_Type', 'Rating', 'Score', 'Number_Reviews', 'Price', 'sim_score']]
 
-# Streamlit UI
+# Streamlit
 st.title('Hotel Recommendation System')
 st.write('Find the best hotels based on your preferences')
 
-# Input Fields
-rating = st.selectbox('Select Hotel Rating', ['Very Good', 'Good', 'Excellent', 'Average', 'Poor'])
+# Step 1: Pilih Lokasi (City)
+unique_cities = df_knn_imputed['City'].unique()
+selected_city = st.selectbox('Select City', sorted(unique_cities))
+
+# Filter data berdasarkan kota
+df_city_filtered = df_knn_imputed[df_knn_imputed['City'] == selected_city].copy()
+
+# Step 2: Pilih Preferensi Lain
+room_types = df_city_filtered['Room_Type'].unique()
+rating = st.selectbox('Select Hotel Rating', df_city_filtered['Rating'].unique())
 score = st.slider('Hotel Score', 1.0, 10.0, 8.0)
 number_reviews = st.slider('Number of Reviews', 0, 5000, 1000)
 price_range = st.slider('Price Range', 0, 1000, (100, 300))
 
 # Get recommendations
 if st.button('Get Recommendations'):
+    # Regenerate TF-IDF and features for filtered city data
+    df_city_filtered['combined_features'] = (
+        df_city_filtered['Rating'].astype(str) + ' ' +
+        df_city_filtered['Score'].astype(str) + ' ' +
+        df_city_filtered['Number_Reviews'].astype(int).astype(str) + ' ' +
+        df_city_filtered['Room_Type'].astype(str) + ' ' +
+        df_city_filtered['City'].astype(str) + ' ' +
+        df_city_filtered['Country'].astype(str)
+    )
+
+    tfidf_matrix_city = tfidf.transform(df_city_filtered['combined_features'])
+    numerical_scaled_city = scaler.transform(df_city_filtered[['Score', 'Number_Reviews', 'Price']])
+    final_features_city = hstack([tfidf_matrix_city, numerical_scaled_city])
+
     recommendations = recommend_by_pref(
-        df_knn_imputed=df_knn_imputed,
+        df_knn_imputed=df_city_filtered,
         tfidf=tfidf,
         scaler=scaler,
-        final_features=final_features,
+        final_features=final_features_city,
         rating=rating,
         score=score,
         number_reviews=number_reviews,
@@ -104,5 +126,5 @@ if st.button('Get Recommendations'):
         top_n=5
     )
 
-    st.write("Here are the top 5 recommended hotels:")
+    st.write(f"Here are the top 5 recommended hotels in {selected_city}:")
     st.dataframe(recommendations)
