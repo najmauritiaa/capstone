@@ -81,7 +81,8 @@ def recommend_by_pref(df_knn_imputed, tfidf, scaler, final_features,
     pref_num = scaler.transform([[avg_score, avg_reviews, avg_price]])
 
     pref_vec = hstack([pref_tfidf, pref_num])
-    sims = cosine_similarity(pref_vec, final_features[df_filtered.index, :]).flatten()
+    filtered_indices = df_filtered.index.to_list()
+    sims = cosine_similarity(pref_vec, final_features[filtered_indices, :]).flatten()
 
     df_filtered = df_filtered.copy()
     df_filtered['sim_score'] = sims
