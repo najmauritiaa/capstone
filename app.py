@@ -64,7 +64,6 @@ final_features = hstack([tfidf_matrix, numerical_scaled])
 # Recommendation Function
 def recommend_by_pref(df_knn_imputed, tfidf, scaler, final_features,
                       city, room_type, rating, top_n=5):
-    # Filter berdasarkan kota dan tipe kamar
     df_filtered = df_knn_imputed[
         (df_knn_imputed['City'] == city) &
         (df_knn_imputed['Room_Type'] == room_type)
@@ -76,37 +75,31 @@ def recommend_by_pref(df_knn_imputed, tfidf, scaler, final_features,
             'Score', 'Number_Reviews', 'Price', 'sim_score'
         ])
 
-    # Bangun vektor preferensi pengguna dari rating
     pref_text = f"{rating}"
     pref_tfidf = tfidf.transform([pref_text])
 
-    # Hitung rata-rata fitur numerik dari hotel hasil filter
     avg_score = df_filtered['Score'].mean()
     avg_reviews = df_filtered['Number_Reviews'].mean()
     avg_price = df_filtered['Price'].mean()
     pref_num = scaler.transform([[avg_score, avg_reviews, avg_price]])
 
-    # Gabungkan fitur
     pref_vec = hstack([pref_tfidf, pref_num])
 
-    # Konversi index label ke posisi integer agar bisa digunakan di final_features
-    filtered_positions = df_filtered.index.to_numpy().tolist()
-    filtered_positions = [df_knn_imputed.index.get_loc(idx) for idx in filtered_positions]
+    # ✅ Perbaikan: ubah label index ke posisi integer dengan aman
+    filtered_positions = df_knn_imputed.index.get_indexer(df_filtered.index)
 
     # Hitung similarity
     sims = cosine_similarity(pref_vec, final_features[filtered_positions, :]).flatten()
 
-    # Masukkan skor similarity ke dataframe
     df_filtered = df_filtered.copy()
     df_filtered['sim_score'] = sims
 
-    # Urutkan berdasarkan similarity tertinggi
     return df_filtered.sort_values(by='sim_score', ascending=False).head(top_n)[
         ['Hotel_Name', 'City', 'Room_Type', 'Rating', 'Score', 'Number_Reviews', 'Price', 'sim_score']
     ]
 
 # === Streamlit UI ===
-st.title("Hotel Recommender ala Traveloka ✈️🏨")
+st.title("Hotel Recommendation System ✈️🏨")
 
 city = st.selectbox('Pilih Kota', df_knn_imputed['City'].dropna().unique())
 room_type = st.selectbox('Pilih Tipe Kamar', df_knn_imputed['Room_Type'].dropna().unique())
