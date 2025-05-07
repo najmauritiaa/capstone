@@ -64,61 +64,68 @@ final_features = hstack([tfidf_matrix, numerical_scaled])
 # Recommendation Function
 def recommend_by_pref(df_knn_imputed, tfidf, scaler, final_features,
                       city, room_type, rating, top_n=5):
+    # Filter berdasarkan kota dan tipe kamar
     df_filtered = df_knn_imputed[
         (df_knn_imputed['City'] == city) &
         (df_knn_imputed['Room_Type'] == room_type)
     ]
 
     if df_filtered.empty:
-        return pd.DataFrame(columns=['Hotel_Name', 'City', 'Room_Type', 'Rating', 'Score', 'Number_Reviews', 'Price', 'sim_score'])
+        return pd.DataFrame(columns=[
+            'Hotel_Name', 'City', 'Room_Type', 'Rating',
+            'Score', 'Number_Reviews', 'Price', 'sim_score'
+        ])
 
+    # Bangun vektor preferensi pengguna dari rating
     pref_text = f"{rating}"
     pref_tfidf = tfidf.transform([pref_text])
 
+    # Hitung rata-rata fitur numerik dari hotel hasil filter
     avg_score = df_filtered['Score'].mean()
     avg_reviews = df_filtered['Number_Reviews'].mean()
     avg_price = df_filtered['Price'].mean()
     pref_num = scaler.transform([[avg_score, avg_reviews, avg_price]])
 
+    # Gabungkan fitur
     pref_vec = hstack([pref_tfidf, pref_num])
-    filtered_positions = df_knn_imputed.index.get_indexer(df_filtered.index)
+
+    # Konversi index label ke posisi integer agar bisa digunakan di final_features
+    filtered_positions = df_filtered.index.to_numpy().tolist()
+    filtered_positions = [df_knn_imputed.index.get_loc(idx) for idx in filtered_positions]
+
+    # Hitung similarity
     sims = cosine_similarity(pref_vec, final_features[filtered_positions, :]).flatten()
 
+    # Masukkan skor similarity ke dataframe
     df_filtered = df_filtered.copy()
     df_filtered['sim_score'] = sims
 
+    # Urutkan berdasarkan similarity tertinggi
     return df_filtered.sort_values(by='sim_score', ascending=False).head(top_n)[
         ['Hotel_Name', 'City', 'Room_Type', 'Rating', 'Score', 'Number_Reviews', 'Price', 'sim_score']
     ]
 
-# Streamlit UI
-st.title('Hotel Recommendation System')
-st.write('Find the best hotels based on location, room type, and rating — just like Traveloka!')
+# === Streamlit UI ===
+st.title("Hotel Recommender ala Traveloka ✈️🏨")
 
-# User Input
-city_options = df_knn_imputed['City'].unique()
-selected_city = st.selectbox('Select City', sorted(city_options))
+city = st.selectbox('Pilih Kota', df_knn_imputed['City'].dropna().unique())
+room_type = st.selectbox('Pilih Tipe Kamar', df_knn_imputed['Room_Type'].dropna().unique())
+rating = st.selectbox('Pilih Rating Hotel yang Kamu Inginkan', ['Excellent', 'Very Good', 'Good', 'Average', 'Poor'])
 
-room_type_options = df_knn_imputed[df_knn_imputed['City'] == selected_city]['Room_Type'].unique()
-selected_room_type = st.selectbox('Select Room Type', sorted(room_type_options))
-
-rating = st.selectbox('Select Hotel Rating', ['Very Good', 'Good', 'Excellent', 'Average', 'Poor'])
-
-# Get Recommendations
-if st.button('Get Recommendations'):
+if st.button('Tampilkan Rekomendasi'):
     recommendations = recommend_by_pref(
         df_knn_imputed=df_knn_imputed,
         tfidf=tfidf,
         scaler=scaler,
         final_features=final_features,
-        city=selected_city,
-        room_type=selected_room_type,
+        city=city,
+        room_type=room_type,
         rating=rating,
         top_n=5
     )
 
     if recommendations.empty:
-        st.warning("No hotels match your criteria.")
+        st.warning("Tidak ditemukan hotel yang cocok dengan preferensimu.")
     else:
-        st.write("Here are the top 5 recommended hotels:")
+        st.success("Berikut rekomendasi hotel terbaik untukmu:")
         st.dataframe(recommendations)
