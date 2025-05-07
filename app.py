@@ -11,7 +11,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from scipy.sparse import hstack
 
 # Load dataset
-df = pd.read_csv("/Users/najma/Downloads/global-hotels.csv")
+df = pd.read_csv("global-hotels.csv")
 
 # Preprocessing code (same as before)
 df['Number_Reviews'] = df['Number_Reviews'].replace({',': ''}, regex=True).astype(int)
