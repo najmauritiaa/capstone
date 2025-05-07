@@ -13,7 +13,7 @@ from scipy.sparse import hstack
 # Load dataset
 df = pd.read_csv("global-hotels.csv")
 
-# Preprocessing code (same as before)
+# Preprocessing
 df['Number_Reviews'] = df['Number_Reviews'].replace({',': ''}, regex=True).astype(int)
 df['Room_Type_original'] = df['Room_Type']
 mask_misplaced = df['Price'].str.contains('[a-zA-Z]', na=False) & df['Room_Type'].isna()
@@ -61,70 +61,63 @@ tfidf_matrix = tfidf.fit_transform(df_knn_imputed['combined_features'])
 # Combine TF-IDF matrix with numeric features
 final_features = hstack([tfidf_matrix, numerical_scaled])
 
-# Recommendation function
+# Recommendation Function
 def recommend_by_pref(df_knn_imputed, tfidf, scaler, final_features,
-                      rating, score, number_reviews, price_range, top_n=5):
+                      city, room_type, rating, top_n=5):
+    df_filtered = df_knn_imputed[
+        (df_knn_imputed['City'] == city) &
+        (df_knn_imputed['Room_Type'] == room_type)
+    ]
+
+    if df_filtered.empty:
+        return pd.DataFrame(columns=['Hotel_Name', 'City', 'Room_Type', 'Rating', 'Score', 'Number_Reviews', 'Price', 'sim_score'])
+
     pref_text = f"{rating}"
     pref_tfidf = tfidf.transform([pref_text])
 
-    avg_price = sum(price_range) / 2
-    pref_num = scaler.transform([[score, number_reviews, avg_price]])
+    avg_score = df_filtered['Score'].mean()
+    avg_reviews = df_filtered['Number_Reviews'].mean()
+    avg_price = df_filtered['Price'].mean()
+    pref_num = scaler.transform([[avg_score, avg_reviews, avg_price]])
 
     pref_vec = hstack([pref_tfidf, pref_num])
+    sims = cosine_similarity(pref_vec, final_features[df_filtered.index, :]).flatten()
 
-    sims = cosine_similarity(pref_vec, final_features).flatten()
+    df_filtered = df_filtered.copy()
+    df_filtered['sim_score'] = sims
 
-    df_knn_imputed['sim_score'] = sims
-    df_filtered = df_knn_imputed[df_knn_imputed['Price'].between(*price_range)]
-    df_sorted = df_filtered.sort_values(by='sim_score', ascending=False)
+    return df_filtered.sort_values(by='sim_score', ascending=False).head(top_n)[
+        ['Hotel_Name', 'City', 'Room_Type', 'Rating', 'Score', 'Number_Reviews', 'Price', 'sim_score']
+    ]
 
-    return df_sorted.head(top_n)[['Hotel_Name', 'City', 'Room_Type', 'Rating', 'Score', 'Number_Reviews', 'Price', 'sim_score']]
-
-# Streamlit
+# Streamlit UI
 st.title('Hotel Recommendation System')
-st.write('Find the best hotels based on your preferences')
+st.write('Find the best hotels based on location, room type, and rating — just like Traveloka!')
 
-# Step 1: Pilih Lokasi (City)
-unique_cities = df_knn_imputed['City'].unique()
-selected_city = st.selectbox('Select City', sorted(unique_cities))
+# User Input
+city_options = df_knn_imputed['City'].unique()
+selected_city = st.selectbox('Select City', sorted(city_options))
 
-# Filter data berdasarkan kota
-df_city_filtered = df_knn_imputed[df_knn_imputed['City'] == selected_city].copy()
+room_type_options = df_knn_imputed[df_knn_imputed['City'] == selected_city]['Room_Type'].unique()
+selected_room_type = st.selectbox('Select Room Type', sorted(room_type_options))
 
-# Step 2: Pilih Preferensi Lain
-room_types = df_city_filtered['Room_Type'].unique()
-rating = st.selectbox('Select Hotel Rating', df_city_filtered['Rating'].unique())
-score = st.slider('Hotel Score', 1.0, 10.0, 8.0)
-number_reviews = st.slider('Number of Reviews', 0, 5000, 1000)
-price_range = st.slider('Price Range', 0, 1000, (100, 300))
+rating = st.selectbox('Select Hotel Rating', ['Very Good', 'Good', 'Excellent', 'Average', 'Poor'])
 
-# Get recommendations
+# Get Recommendations
 if st.button('Get Recommendations'):
-    # Regenerate TF-IDF and features for filtered city data
-    df_city_filtered['combined_features'] = (
-        df_city_filtered['Rating'].astype(str) + ' ' +
-        df_city_filtered['Score'].astype(str) + ' ' +
-        df_city_filtered['Number_Reviews'].astype(int).astype(str) + ' ' +
-        df_city_filtered['Room_Type'].astype(str) + ' ' +
-        df_city_filtered['City'].astype(str) + ' ' +
-        df_city_filtered['Country'].astype(str)
-    )
-
-    tfidf_matrix_city = tfidf.transform(df_city_filtered['combined_features'])
-    numerical_scaled_city = scaler.transform(df_city_filtered[['Score', 'Number_Reviews', 'Price']])
-    final_features_city = hstack([tfidf_matrix_city, numerical_scaled_city])
-
     recommendations = recommend_by_pref(
-        df_knn_imputed=df_city_filtered,
+        df_knn_imputed=df_knn_imputed,
         tfidf=tfidf,
         scaler=scaler,
-        final_features=final_features_city,
+        final_features=final_features,
+        city=selected_city,
+        room_type=selected_room_type,
         rating=rating,
-        score=score,
-        number_reviews=number_reviews,
-        price_range=price_range,
         top_n=5
     )
 
-    st.write(f"Here are the top 5 recommended hotels in {selected_city}:")
-    st.dataframe(recommendations)
+    if recommendations.empty:
+        st.warning("No hotels match your criteria.")
+    else:
+        st.write("Here are the top 5 recommended hotels:")
+        st.dataframe(recommendations)
