@@ -9,7 +9,6 @@ from streamlit_folium import st_folium
 
 # ---------------------- CONFIG -----------------------
 st.set_page_config(layout="wide")
-st.title("🏨 Sistem Rekomendasi Hotel Berbasis Mood & Aktivitas")
 
 # ---------------------- LOAD DATA -----------------------
 @st.cache_data
@@ -42,7 +41,7 @@ def content_based_recommendation(df, hotel_name, top_n=5):
     return df.iloc[top_indices]
 
 # ---------------------- MAIN INTERFACE -----------------------
-st.header("🗺️ Jelajahi Hotel dan Temukan Rekomendasi Serupa")
+st.header("🗺️ Jelajahi Hotel di Indonesia")
 
 # Buat peta
 m = folium.Map(location=[-2.5, 117.5], zoom_start=5)
@@ -50,21 +49,30 @@ marker_cluster = MarkerCluster().add_to(m)
 
 for _, row in df.iterrows():
     if row['Hotel Rating'] != 'Belum ada rating':
+        hotel_name = row['Hotel Name']
+        rating = row['Hotel Rating']
         image_url = row['Hotel Image'] if 'Hotel Image' in row and pd.notna(row['Hotel Image']) else ""
-        popup_content = f"""
+
+        # Buat HTML popup
+        popup_html = f"""
             <div style="width:200px">
-                <b>{row['Hotel Name']}</b><br>
-                Rating: {row['Hotel Rating']}<br>
-                {'<img src="' + image_url + '" width="160">' if image_url else ''}
+                <h4 style="margin-bottom:5px;">{hotel_name}</h4>
+                <p style="margin:0;">⭐ Rating: {rating}</p>
+                {'<img src="' + image_url + '" width="180" style="margin-top:5px;">' if image_url else ''}
             </div>
         """
+
+        iframe = folium.IFrame(html=popup_html, width=200, height=200)
+        popup = folium.Popup(iframe, max_width=250)
+
         folium.Marker(
             location=[row['Lattitute'], row['Longitude']],
-            popup=row['Hotel Name'],
+            popup=popup,
+            tooltip=hotel_name,
             icon=folium.Icon(color='blue', icon='info-sign')
         ).add_to(marker_cluster)
 
-# Tampilkan peta
+# Tampilkan peta di Streamlit
 map_data = st_folium(m, width=800, height=500)
 
 # ---------------------- HOTEL KLIK DETEKSI -----------------------
