@@ -1,103 +1,106 @@
-# === Import Libraries ===
-import pandas as pd
-import numpy as np
-import seaborn as sns
-import matplotlib.pyplot as plt
-from sklearn.preprocessing import LabelEncoder
-from sklearn.impute import KNNImputer
 import streamlit as st
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.preprocessing import MinMaxScaler
+import pandas as pd
+import ast
+import folium
+from folium.plugins import MarkerCluster
+from streamlit_folium import st_folium
 from sklearn.metrics.pairwise import cosine_similarity
-from scipy.sparse import hstack
+from sklearn.preprocessing import MultiLabelBinarizer
 
-# === Load Dataset ===
-df = pd.read_csv("global-hotels.csv")
+st.set_page_config(page_title="Peta Hotel Interaktif", layout="wide")
 
-# === Data Preprocessing ===
-df['Number_Reviews'] = df['Number_Reviews'].replace({',': ''}, regex=True).astype(int)
-df['Room_Type_original'] = df['Room_Type']
-mask_misplaced = df['Price'].str.contains('[a-zA-Z]', na=False) & df['Room_Type'].isna()
-df.loc[mask_misplaced, 'Room_Type'] = df.loc[mask_misplaced, 'Price']
-df.loc[mask_misplaced, 'Price'] = np.nan
-df['Price'] = df['Price'].str.replace(r'[^\d.]', '', regex=True)
-df['Price'] = pd.to_numeric(df['Price'], errors='coerce')
-df = df.drop(columns=['Room_Type_original'])
+# ---------------------- LOAD DATA -----------------------
+@st.cache_data
+def load_data():
+    df = pd.read_csv("indonesia_hotels.csv")
+    df = df.dropna()
+    df['list_fasilitas'] = df['list_fasilitas'].apply(lambda x: ast.literal_eval(x) if isinstance(x, str) else x)
+    return df
 
-# === Handle Missing Values ===
-df_knn = df.copy()
-label_encoders = {}
-categorical_cols = ['Hotel_Name', 'Rating', 'Room_Type', 'City', 'Country']
+df = load_data()
 
-for col in categorical_cols:
-    le = LabelEncoder()
-    df_knn[col] = le.fit_transform(df_knn[col].astype(str))
-    label_encoders[col] = le
+# ------------------ CONTENT BASED FILTER ----------------
+def content_based_recommendation(df, hotel_name, top_n=5):
+    mlb = MultiLabelBinarizer()
+    fasilitas_encoded = mlb.fit_transform(df['list_fasilitas'].apply(lambda x: [f.lower() for f in x]))
+    fitur_df = pd.DataFrame(fasilitas_encoded, columns=mlb.classes_, index=df.index)
 
-imputer = KNNImputer(n_neighbors=5)
-df_knn_imputed = pd.DataFrame(imputer.fit_transform(df_knn), columns=df_knn.columns)
+    cosine_sim = cosine_similarity(fitur_df)
 
-for col in categorical_cols:
-    df_knn_imputed[col] = label_encoders[col].inverse_transform(df_knn_imputed[col].astype(int))
+    try:
+        idx = df.index[df['Hotel Name'] == hotel_name][0]
+    except IndexError:
+        return pd.DataFrame()
 
-# === Feature Preparation for TF-IDF ===
-df_knn_imputed['combined_features'] = (
-    df_knn_imputed['Room_Type'].astype(str) + ' ' +
-    df_knn_imputed['Rating'].astype(str)
-)
+    sim_scores = list(enumerate(cosine_sim[idx]))
+    sim_scores = sorted(sim_scores, key=lambda x: x[1], reverse=True)
+    sim_scores = [s for s in sim_scores if s[0] != idx]
 
-tfidf = TfidfVectorizer(stop_words='english')
-tfidf_matrix = tfidf.fit_transform(df_knn_imputed['combined_features'])
+    top_indices = [i[0] for i in sim_scores[:top_n]]
+    return df.iloc[top_indices]
 
-# Combine with scaled numeric features if needed
-# (but not used in this simplified version)
-final_features = tfidf_matrix
+# -------------------- TAB 3: PETA HOTEL ----------------
+st.title("🗺️ Peta Sebaran Hotel Indonesia")
 
-# === Recommendation Function (Location → Room Type & Rating) ===
-def recommend_by_pref_location_first(df_knn_imputed, tfidf, final_features,
-                                     location_city, room_type, rating, top_n=5):
-    # Filter by selected city
-    df_filtered = df_knn_imputed[df_knn_imputed['City'] == location_city]
+m = folium.Map(location=[-2.5, 117.5], zoom_start=5)
+marker_cluster = MarkerCluster().add_to(m)
 
-    if df_filtered.empty:
-        return pd.DataFrame(columns=['Hotel_Name', 'City', 'Room_Type', 'Rating', 'Score', 'Number_Reviews', 'Price', 'sim_score'])
+coord_to_hotel = {}
 
-    # Preference text only includes room type and rating
-    pref_text = f"{room_type} {rating}"
-    pref_tfidf = tfidf.transform([pref_text])
+for _, row in df.iterrows():
+    if row['Hotel Rating'] != 'Belum ada rating':
+        image_url = row['Hotel Image'] if 'Hotel Image' in row and pd.notna(row['Hotel Image']) else ""
+        html_popup = f"""
+            <div style="width:200px">
+                <h4>{row['Hotel Name']}</h4>
+                <p>⭐ Rating: {row['Hotel Rating']}</p>
+                {'<img src="' + image_url + '" width="180">' if image_url else ''}
+            </div>
+        """
+        iframe = folium.IFrame(html=html_popup, width=200, height=200)
+        popup = folium.Popup(iframe, max_width=250)
 
-    # Only use tfidf_matrix (no numerical features)
-    sims = cosine_similarity(pref_tfidf, final_features[df_filtered.index]).flatten()
+        lat = row['Lattitute']
+        lon = row['Longitude']
 
-    df_filtered = df_filtered.copy()
-    df_filtered['sim_score'] = sims
-    df_sorted = df_filtered.sort_values(by='sim_score', ascending=False)
+        folium.Marker(
+            location=[lat, lon],
+            popup=popup,
+            icon=folium.Icon(color='blue', icon='info-sign')
+        ).add_to(marker_cluster)
 
-    return df_sorted.head(top_n)[['Hotel_Name', 'City', 'Room_Type', 'Rating', 'Score', 'Number_Reviews', 'Price', 'sim_score']]
+        coord_to_hotel[(round(lat, 5), round(lon, 5))] = row['Hotel Name']
 
-# === Streamlit UI ===
-st.title('Hotel Recommendation System')
-st.write('Find the best hotels based on your location, room type, and rating')
+map_data = st_folium(m, width=700, height=500)
 
-# Input Fields
-location_city = st.selectbox('Select City', sorted(df_knn_imputed['City'].unique()))
-room_type = st.selectbox('Select Room Type', sorted(df_knn_imputed['Room_Type'].unique()))
-rating = st.selectbox('Select Hotel Rating', sorted(df_knn_imputed['Rating'].unique()))
+if map_data and map_data.get("last_clicked"):
+    clicked_lat = round(map_data["last_clicked"]["lat"], 5)
+    clicked_lon = round(map_data["last_clicked"]["lng"], 5)
 
-# Button
-if st.button('Get Recommendations'):
-    recommendations = recommend_by_pref_location_first(
-        df_knn_imputed=df_knn_imputed,
-        tfidf=tfidf,
-        final_features=final_features,
-        location_city=location_city,
-        room_type=room_type,
-        rating=rating,
-        top_n=5
-    )
+    clicked_name = coord_to_hotel.get((clicked_lat, clicked_lon))
 
-    if recommendations.empty:
-        st.warning("No recommendations found for the selected criteria.")
-    else:
-        st.write("Here are the top recommended hotels:")
-        st.dataframe(recommendations)
+    if clicked_name:
+        st.subheader(f"📌 Detail Hotel: {clicked_name}")
+        clicked_row = df[df['Hotel Name'] == clicked_name].iloc[0]
+
+        if pd.notna(clicked_row['Hotel Image']):
+            st.image(clicked_row['Hotel Image'], width=400)
+
+        st.write(f"📍 {clicked_row['City']} - {clicked_row['Provinsi']}")
+        st.write(f"💰 Rp {int(clicked_row['Min'])} - Rp {int(clicked_row['Max'])}")
+        st.write(f"⭐ Rating: {clicked_row['Hotel Rating']}")
+        st.write("**Fasilitas:**", ", ".join(clicked_row['list_fasilitas']))
+        st.markdown("---")
+
+        st.subheader("🔁 Rekomendasi Hotel Serupa")
+        rekomendasi = content_based_recommendation(df, clicked_name)
+
+        for _, row in rekomendasi.iterrows():
+            st.markdown(f"### 🏨 {row['Hotel Name']}")
+            if pd.notna(row['Hotel Image']):
+                st.image(row['Hotel Image'], width=400)
+            st.write(f"📍 {row['City']} - {row['Provinsi']}")
+            st.write(f"💰 Rp {int(row['Min'])} - Rp {int(row['Max'])}")
+            st.write(f"⭐ Rating: {row['Hotel Rating']}")
+            st.write("**Fasilitas:**", ", ".join(row['list_fasilitas']))
+            st.markdown("---")
