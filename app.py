@@ -7,7 +7,7 @@ from streamlit_folium import st_folium
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.preprocessing import MultiLabelBinarizer
 
-st.set_page_config(page_title="Peta Hotel & Rekomendasi", layout="wide")
+st.set_page_config(page_title="Rekomendasi Hotel", layout="wide")
 
 # ---------------------- LOAD DATA -----------------------
 @st.cache_data
@@ -38,63 +38,72 @@ def content_based_recommendation(df, hotel_name, top_n=5):
     top_indices = [i[0] for i in sim_scores[:top_n]]
     return df.iloc[top_indices]
 
-# ---------------------- UI ------------------------------
-st.title("🗺️ Peta Hotel dan Rekomendasi Serupa")
+# -------------------- TAB LAYOUT ------------------------
+tab1, tab2 = st.tabs(["🗺️ Peta Hotel", "🤖 Rekomendasi Hotel"])
 
-# Inisialisasi Peta
-m = folium.Map(location=[-2.5, 117.5], zoom_start=5)
-marker_cluster = MarkerCluster().add_to(m)
+# -------------------- TAB 1: MAP ------------------------
+with tab1:
+    st.header("🗺️ Peta Sebaran Hotel")
 
-# Mapping koordinat ke index
-coord_to_index = {}
+    m = folium.Map(location=[-2.5, 117.5], zoom_start=5)
+    marker_cluster = MarkerCluster().add_to(m)
 
-for idx, row in df.iterrows():
-    if row['Hotel Rating'] != 'Belum ada rating':
-        image_url = row['Hotel Image'] if 'Hotel Image' in row and pd.notna(row['Hotel Image']) else ""
-        html_popup = f"""
-            <div style="width:200px">
-                <h4>{row['Hotel Name']}</h4>
-                <p>⭐ Rating: {row['Hotel Rating']}</p>
-                {'<img src="' + image_url + '" width="180">' if image_url else ''}
-            </div>
-        """
-        iframe = folium.IFrame(html=html_popup, width=200, height=200)
-        popup = folium.Popup(iframe, max_width=250)
+    coord_to_index = {}
 
-        lat, lon = row['Lattitute'], row['Longitude']
-        folium.Marker(
-            location=[lat, lon],
-            popup=popup,
-            icon=folium.Icon(color='blue', icon='info-sign')
-        ).add_to(marker_cluster)
+    for idx, row in df.iterrows():
+        if row['Hotel Rating'] != 'Belum ada rating':
+            image_url = row['Hotel Image'] if pd.notna(row['Hotel Image']) else ""
+            popup_html = f"""
+                <div style="width:200px">
+                    <h4>{row['Hotel Name']}</h4>
+                    <p>⭐ Rating: {row['Hotel Rating']}</p>
+                    {'<img src="' + image_url + '" width="180">' if image_url else ''}
+                </div>
+            """
+            iframe = folium.IFrame(html=popup_html, width=200, height=200)
+            popup = folium.Popup(iframe, max_width=250)
 
-        coord_to_index[(round(lat, 5), round(lon, 5))] = idx
+            lat, lon = row['Lattitute'], row['Longitude']
+            folium.Marker(
+                location=[lat, lon],
+                popup=popup,
+                icon=folium.Icon(color='blue', icon='info-sign')
+            ).add_to(marker_cluster)
 
-# Tampilkan Peta
-map_data = st_folium(m, width=700, height=500)
+            coord_to_index[(round(lat, 5), round(lon, 5))] = idx
 
-# Tangani Klik
-if map_data and map_data.get("last_clicked"):
-    clicked_lat = round(map_data["last_clicked"]["lat"], 5)
-    clicked_lon = round(map_data["last_clicked"]["lng"], 5)
+    map_data = st_folium(m, width=700, height=500)
 
-    idx = coord_to_index.get((clicked_lat, clicked_lon))
+    if map_data and map_data.get("last_clicked"):
+        clicked_lat = round(map_data["last_clicked"]["lat"], 5)
+        clicked_lon = round(map_data["last_clicked"]["lng"], 5)
+        clicked_idx = coord_to_index.get((clicked_lat, clicked_lon))
 
-    if idx is not None:
-        clicked_row = df.loc[idx]
-        hotel_name = clicked_row['Hotel Name']
+        if clicked_idx is not None:
+            st.session_state.clicked_index = clicked_idx
+            st.success(f"✅ Hotel dipilih: {df.loc[clicked_idx]['Hotel Name']}")
 
-        st.subheader(f"📌 Detail Hotel: {hotel_name}")
-        if pd.notna(clicked_row['Hotel Image']):
-            st.image(clicked_row['Hotel Image'], width=400)
-        st.write(f"📍 {clicked_row['City']} - {clicked_row['Provinsi']}")
-        st.write(f"💰 Rp {int(clicked_row['Min'])} - Rp {int(clicked_row['Max'])}")
-        st.write(f"⭐ Rating: {clicked_row['Hotel Rating']}")
-        st.write("**Fasilitas:**", ", ".join(clicked_row['list_fasilitas']))
+# -------------------- TAB 2: REKOMENDASI ----------------
+with tab2:
+    st.header("🤖 Rekomendasi Hotel Berdasarkan Pilihan")
+
+    if "clicked_index" not in st.session_state:
+        st.info("Klik salah satu marker di tab 'Peta Hotel' untuk melihat rekomendasi.")
+    else:
+        idx = st.session_state.clicked_index
+        clicked_hotel = df.loc[idx]
+
+        st.subheader(f"📌 Hotel: {clicked_hotel['Hotel Name']}")
+        if pd.notna(clicked_hotel['Hotel Image']):
+            st.image(clicked_hotel['Hotel Image'], width=400)
+        st.write(f"📍 {clicked_hotel['City']} - {clicked_hotel['Provinsi']}")
+        st.write(f"💰 Rp {int(clicked_hotel['Min'])} - Rp {int(clicked_hotel['Max'])}")
+        st.write(f"⭐ Rating: {clicked_hotel['Hotel Rating']}")
+        st.write("**Fasilitas:**", ", ".join(clicked_hotel['list_fasilitas']))
         st.markdown("---")
 
         st.subheader("🔁 Rekomendasi Hotel Serupa")
-        rekomendasi = content_based_recommendation(df, hotel_name)
+        rekomendasi = content_based_recommendation(df, clicked_hotel['Hotel Name'])
 
         if not rekomendasi.empty:
             for _, row in rekomendasi.iterrows():
@@ -107,4 +116,4 @@ if map_data and map_data.get("last_clicked"):
                 st.write("**Fasilitas:**", ", ".join(row['list_fasilitas']))
                 st.markdown("---")
         else:
-            st.warning("❗ Tidak ditemukan hotel mirip.")
+            st.warning("Tidak ditemukan hotel mirip.")
