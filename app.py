@@ -15,7 +15,7 @@ def load_data():
     df = pd.read_csv("indonesia_hotels.csv")
     df = df.dropna()
     df['list_fasilitas'] = df['list_fasilitas'].apply(lambda x: ast.literal_eval(x) if isinstance(x, str) else x)
-    return df
+    return df.reset_index(drop=True)
 
 df = load_data()
 
@@ -26,7 +26,7 @@ def content_based_recommendation(df, hotel_name, top_n=5):
     fitur_df = pd.DataFrame(fasilitas_encoded, columns=mlb.classes_, index=df.index)
 
     try:
-        idx = df.index[df['Hotel Name'] == hotel_name][0]
+        idx = df[df['Hotel Name'].str.strip().str.lower() == hotel_name.strip().lower()].index[0]
     except IndexError:
         return pd.DataFrame()
 
@@ -45,10 +45,10 @@ st.title("🗺️ Peta Hotel dan Rekomendasi Serupa")
 m = folium.Map(location=[-2.5, 117.5], zoom_start=5)
 marker_cluster = MarkerCluster().add_to(m)
 
-# Mapping koordinat ke ID unik
-coord_to_id = {}
+# Mapping koordinat ke index
+coord_to_index = {}
 
-for _, row in df.iterrows():
+for idx, row in df.iterrows():
     if row['Hotel Rating'] != 'Belum ada rating':
         image_url = row['Hotel Image'] if 'Hotel Image' in row and pd.notna(row['Hotel Image']) else ""
         html_popup = f"""
@@ -68,8 +68,7 @@ for _, row in df.iterrows():
             icon=folium.Icon(color='blue', icon='info-sign')
         ).add_to(marker_cluster)
 
-        hotel_id = row['Unnamed: 0'] if 'Unnamed: 0' in row else row.name
-        coord_to_id[(round(lat, 5), round(lon, 5))] = hotel_id
+        coord_to_index[(round(lat, 5), round(lon, 5))] = idx
 
 # Tampilkan Peta
 map_data = st_folium(m, width=700, height=500)
@@ -79,13 +78,13 @@ if map_data and map_data.get("last_clicked"):
     clicked_lat = round(map_data["last_clicked"]["lat"], 5)
     clicked_lon = round(map_data["last_clicked"]["lng"], 5)
 
-    hotel_id = coord_to_id.get((clicked_lat, clicked_lon))
+    idx = coord_to_index.get((clicked_lat, clicked_lon))
 
-    if hotel_id is not None:
-        clicked_row = df[df['Unnamed: 0'] == hotel_id].iloc[0] if 'Unnamed: 0' in df.columns else df.iloc[hotel_id]
-        clicked_name = clicked_row['Hotel Name']
+    if idx is not None:
+        clicked_row = df.loc[idx]
+        hotel_name = clicked_row['Hotel Name']
 
-        st.subheader(f"📌 Detail Hotel: {clicked_name}")
+        st.subheader(f"📌 Detail Hotel: {hotel_name}")
         if pd.notna(clicked_row['Hotel Image']):
             st.image(clicked_row['Hotel Image'], width=400)
         st.write(f"📍 {clicked_row['City']} - {clicked_row['Provinsi']}")
@@ -95,7 +94,7 @@ if map_data and map_data.get("last_clicked"):
         st.markdown("---")
 
         st.subheader("🔁 Rekomendasi Hotel Serupa")
-        rekomendasi = content_based_recommendation(df, clicked_name)
+        rekomendasi = content_based_recommendation(df, hotel_name)
 
         if not rekomendasi.empty:
             for _, row in rekomendasi.iterrows():
@@ -108,4 +107,4 @@ if map_data and map_data.get("last_clicked"):
                 st.write("**Fasilitas:**", ", ".join(row['list_fasilitas']))
                 st.markdown("---")
         else:
-            st.warning("Tidak ditemukan hotel mirip.")
+            st.warning("❗ Tidak ditemukan hotel mirip.")
