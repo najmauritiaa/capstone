@@ -79,7 +79,7 @@ if map_data and map_data.get("last_object_clicked_popup"):
         st.image(selected_hotel['Hotel Image'], width=400)
     st.markdown(f"**Nama:** {selected_hotel['Hotel Name']}")
     st.markdown(f"**Lokasi:** {selected_hotel['City']}, {selected_hotel['Provinsi']}")
-    st.markdown(f"**Rating:** ⭐ {selected_hotel['Hotel Rating']}")
+    st.markdown(f"**Rating:** {selected_hotel['Hotel Rating']}")
     st.markdown(f"**Harga:** Rp {int(selected_hotel['Min'])} - Rp {int(selected_hotel['Max'])}")
     st.markdown(f"**Fasilitas:** {', '.join(selected_hotel['list_fasilitas'])}")
 
