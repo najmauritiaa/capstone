@@ -9,7 +9,19 @@ from streamlit_folium import st_folium
 
 # ---------------------- CONFIG -----------------------
 st.set_page_config(layout="wide")
-
+st.markdown(
+    """
+    <style>
+    body {
+        background-color: #e0f7fa; /* biru muda */
+    }
+    .stApp {
+        background-color: #e0f7fa; /* fallback untuk elemen utama */
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 # ---------------------- LOAD DATA -----------------------
 @st.cache_data
 def load_data():
