@@ -48,147 +48,142 @@ def load_data():
 
 df = load_data()
 
-# ---------------------- UI PERTANYAAN EMOSI -----------------------
-st.subheader("Langkah 1: Jawab pertanyaan berikut ini")
+# ---------------------- CONTENT-BASED FUNCTION -----------------------
+def content_based_recommendation(df, hotel_name, top_n=5):
+    mlb = MultiLabelBinarizer()
+    fasilitas_encoded = mlb.fit_transform(df['list_fasilitas'].apply(lambda x: [f.lower() for f in x]))
+    fitur_df = pd.DataFrame(fasilitas_encoded, columns=mlb.classes_, index=df.index)
+    cosine_sim = cosine_similarity(fitur_df)
 
-questions = [
-    "Apa yang kamu rasakan saat ini?",
-    "Apakah kamu merasa kesepian hari ini?",
-    "Apakah kamu merasa stres atau kewalahan akhir-akhir ini?",
-    "Apakah kamu ingin berbicara dengan seseorang saat ini?",
-    "Apakah kamu merasa bosan dengan rutinitasmu?",
-    "Apakah kamu ingin mencoba hal baru hari ini?",
-    "Apakah kamu merasa dihargai oleh orang-orang di sekitarmu?",
-    "Apakah kamu sedang merindukan seseorang secara romantis?",
-    "Apakah kamu ingin menyendiri dan menjauh dari keramaian?",
-    "Apakah kamu merasa tubuhmu lelah atau tidak bersemangat?",
-    "Apakah kamu merasa senang ketika dikelilingi banyak orang?",
-    "Apakah kamu ingin merasakan adrenalin atau sesuatu yang memacu semangat?",
-    "Apakah kamu merasa butuh memahami dirimu lebih dalam?",
-    "Apakah kamu merasa kurang terhubung dengan orang-orang terdekat?",
-    "Kalau bisa memilih aktivitas sekarang, kamu ingin:"
-]
+    try:
+        idx = df.index[df['Hotel Name'] == hotel_name][0]
+    except IndexError:
+        return pd.DataFrame()
 
-answer_options = {
-    "Apa yang kamu rasakan saat ini?": ["senang", "cemas", "sedih"],
-    "Kalau bisa memilih aktivitas sekarang, kamu ingin:": ["tidur", "menyendiri", "pacaran", "jalan-jalan"]
-}
+    sim_scores = list(enumerate(cosine_sim[idx]))
+    sim_scores = sorted(sim_scores, key=lambda x: x[1], reverse=True)
+    sim_scores = [s for s in sim_scores if s[0] != idx]
 
-answers = {}
-for q in questions:
-    opts = answer_options.get(q, ["ya", "tidak"])
-    answers[q] = st.selectbox(q, opts)
+    top_indices = [i[0] for i in sim_scores[:top_n]]
+    return df.iloc[top_indices]
 
-st.subheader("Langkah 2: Masukkan Budget")
-budget_min = st.number_input("Budget Minimum (Rp)", min_value=0, value=300000, step=50000)
-budget_max = st.number_input("Budget Maksimum (Rp)", min_value=0, value=800000, step=50000)
+# ---------------------- TABS -----------------------
+tab1, tab2, tab3 = st.tabs(["💡 Rekomendasi Berdasarkan Emosi", "🔁 Content-Based Rekomendasi", "🗺️ Peta Interaktif"])
 
-if st.button("🎯 Cari Rekomendasi Hotel"):
+# ---------------------- TAB 1 -----------------------
+with tab1:
+    st.subheader("Langkah 1: Jawab pertanyaan berikut ini")
+    questions = [
+        "Apa yang kamu rasakan saat ini?",
+        "Apakah kamu merasa kesepian hari ini?",
+        "Apakah kamu merasa stres atau kewalahan akhir-akhir ini?",
+        "Apakah kamu ingin berbicara dengan seseorang saat ini?",
+        "Apakah kamu merasa bosan dengan rutinitasmu?",
+        "Apakah kamu ingin mencoba hal baru hari ini?",
+        "Apakah kamu merasa dihargai oleh orang-orang di sekitarmu?",
+        "Apakah kamu sedang merindukan seseorang secara romantis?",
+        "Apakah kamu ingin menyendiri dan menjauh dari keramaian?",
+        "Apakah kamu merasa tubuhmu lelah atau tidak bersemangat?",
+        "Apakah kamu merasa senang ketika dikelilingi banyak orang?",
+        "Apakah kamu ingin merasakan adrenalin atau sesuatu yang memacu semangat?",
+        "Apakah kamu merasa butuh memahami dirimu lebih dalam?",
+        "Apakah kamu merasa kurang terhubung dengan orang-orang terdekat?",
+        "Kalau bisa memilih aktivitas sekarang, kamu ingin:"
+    ]
 
-    rules = {
-        "Meditation": [
-            ("Apa yang kamu rasakan saat ini?", ["cemas", "sedih"]),
-            ("Apakah kamu merasa stres atau kewalahan akhir-akhir ini?", ["ya"]),
-            ("Apakah kamu merasa tubuhmu lelah atau tidak bersemangat?", ["ya"]),
-            ("Apakah kamu merasa butuh memahami dirimu lebih dalam?", ["ya"])
-        ],
-        "Me-time": [
-            ("Apakah kamu ingin menyendiri dan menjauh dari keramaian?", ["ya"]),
-            ("Kalau bisa memilih aktivitas sekarang, kamu ingin:", ["menyendiri", "tidur"])
-        ],
-        "Socialized": [
-            ("Apakah kamu merasa kesepian hari ini?", ["ya"]),
-            ("Apakah kamu ingin berbicara dengan seseorang saat ini?", ["ya"]),
-            ("Apakah kamu merasa senang ketika dikelilingi banyak orang?", ["ya"])
-        ],
-        "Date": [
-            ("Apakah kamu sedang merindukan seseorang secara romantis?", ["ya"]),
-            ("Kalau bisa memilih aktivitas sekarang, kamu ingin:", ["pacaran"])
-        ],
-        "Adventure": [
-            ("Apakah kamu merasa bosan dengan rutinitasmu?", ["ya"]),
-            ("Apakah kamu ingin mencoba hal baru hari ini?", ["ya"]),
-            ("Apakah kamu ingin merasakan adrenalin atau sesuatu yang memacu semangat?", ["ya"]),
-            ("Kalau bisa memilih aktivitas sekarang, kamu ingin:", ["jalan-jalan"])
-        ],
-        "Support": [
-            ("Apakah kamu merasa kurang terhubung dengan orang-orang terdekat?", ["ya"]),
-            ("Apakah kamu merasa dihargai oleh orang-orang di sekitarmu?", ["tidak"])
-        ]
+    answer_options = {
+        "Apa yang kamu rasakan saat ini?": ["senang", "cemas", "sedih"],
+        "Kalau bisa memilih aktivitas sekarang, kamu ingin:": ["tidur", "menyendiri", "pacaran", "jalan-jalan"]
     }
 
-    scores = {}
-    for need, condition_list in rules.items():
-        score = sum(1 for q, valid_answers in condition_list if answers.get(q) in valid_answers)
-        scores[need] = score
+    answers = {}
+    for q in questions:
+        opts = answer_options.get(q, ["ya", "tidak"])
+        answers[q] = st.selectbox(q, opts)
 
-    dominant_need = max(scores, key=scores.get)
-    st.success(f"✅ Kebutuhan Emosionalmu Saat Ini: {dominant_need}")
+    st.subheader("Langkah 2: Masukkan Budget")
+    budget_min = st.number_input("Budget Minimum (Rp)", min_value=0, value=300000, step=50000)
+    budget_max = st.number_input("Budget Maksimum (Rp)", min_value=0, value=800000, step=50000)
 
-    need_to_facilities = {
-        "Meditation": ['spa', 'pijat', 'yoga', 'perpustakaan', 'taman', 'gazebo', 'atmosfer tenang'],
-        "Adventure": ['bersepeda', 'mendaki', 'memancing', 'kayak', 'menyelam', 'snorkeling', 'berkuda'],
-        "Date": ['bar', 'private', 'romantis', 'restoran', 'teras', 'laut'],
-        "Socialized": ['klub', 'karaoke', 'bar', 'game', 'anak', 'umum'],
-        "Me-time": ['perpustakaan', 'spa', 'yoga', 'tv', 'teras', 'tenang'],
-        "Support": ['layanan', 'resepsionis', 'laundry', 'keamanan', 'apotek', 'pelayanan']
-    }
+    if st.button("🎯 Cari Rekomendasi Hotel"):
+        rules = {
+            "Meditation": [("Apa yang kamu rasakan saat ini?", ["cemas", "sedih"]),
+                            ("Apakah kamu merasa stres atau kewalahan akhir-akhir ini?", ["ya"]),
+                            ("Apakah kamu merasa tubuhmu lelah atau tidak bersemangat?", ["ya"]),
+                            ("Apakah kamu merasa butuh memahami dirimu lebih dalam?", ["ya"])],
+            "Me-time": [("Apakah kamu ingin menyendiri dan menjauh dari keramaian?", ["ya"]),
+                        ("Kalau bisa memilih aktivitas sekarang, kamu ingin:", ["menyendiri", "tidur"])],
+            "Socialized": [("Apakah kamu merasa kesepian hari ini?", ["ya"]),
+                           ("Apakah kamu ingin berbicara dengan seseorang saat ini?", ["ya"]),
+                           ("Apakah kamu merasa senang ketika dikelilingi banyak orang?", ["ya"])],
+            "Date": [("Apakah kamu sedang merindukan seseorang secara romantis?", ["ya"]),
+                     ("Kalau bisa memilih aktivitas sekarang, kamu ingin:", ["pacaran"])],
+            "Adventure": [("Apakah kamu merasa bosan dengan rutinitasmu?", ["ya"]),
+                          ("Apakah kamu ingin mencoba hal baru hari ini?", ["ya"]),
+                          ("Apakah kamu ingin merasakan adrenalin atau sesuatu yang memacu semangat?", ["ya"]),
+                          ("Kalau bisa memilih aktivitas sekarang, kamu ingin:", ["jalan-jalan"])],
+            "Support": [("Apakah kamu merasa kurang terhubung dengan orang-orang terdekat?", ["ya"]),
+                        ("Apakah kamu merasa dihargai oleh orang-orang di sekitarmu?", ["tidak"])]
+        }
 
-    needed_keywords = need_to_facilities.get(dominant_need, [])
+        scores = {need: sum(1 for q, valid in conds if answers.get(q) in valid) for need, conds in rules.items()}
+        dominant_need = max(scores, key=scores.get)
+        st.success(f"✅ Kebutuhan Emosionalmu Saat Ini: {dominant_need}")
 
-    def count_matching_facilities(hotel_facilities, needed_keywords):
-        return sum(any(kw.lower() in f.lower() for f in hotel_facilities) for kw in needed_keywords)
+        need_to_facilities = {
+            "Meditation": ['spa', 'pijat', 'yoga', 'perpustakaan', 'taman', 'gazebo', 'atmosfer tenang'],
+            "Adventure": ['bersepeda', 'mendaki', 'memancing', 'kayak', 'menyelam', 'snorkeling', 'berkuda'],
+            "Date": ['bar', 'private', 'romantis', 'restoran', 'teras', 'laut'],
+            "Socialized": ['klub', 'karaoke', 'bar', 'game', 'anak', 'umum'],
+            "Me-time": ['perpustakaan', 'spa', 'yoga', 'tv', 'teras', 'tenang'],
+            "Support": ['layanan', 'resepsionis', 'laundry', 'keamanan', 'apotek', 'pelayanan']
+        }
 
-    filtered_hotels = df[(df['Min'] >= budget_min) & (df['Max'] <= budget_max)].copy()
+        needed_keywords = need_to_facilities.get(dominant_need, [])
 
-    if not filtered_hotels.empty:
-        filtered_hotels['matching_score'] = filtered_hotels['list_fasilitas'].apply(
-            lambda x: count_matching_facilities(x, needed_keywords)
-        )
-        top_5 = filtered_hotels.sort_values(by='matching_score', ascending=False).head(5)
-        st.subheader("🏨 Rekomendasi Hotel Berdasarkan Emosi & Budget (Top 5)")
+        def count_matching_facilities(hotel_facilities, keywords):
+            return sum(any(kw.lower() in f.lower() for f in hotel_facilities) for kw in keywords)
+
+        filtered = df[(df['Min'] >= budget_min) & (df['Max'] <= budget_max)].copy()
+        filtered['matching_score'] = filtered['list_fasilitas'].apply(lambda x: count_matching_facilities(x, needed_keywords))
+        top_5 = filtered.sort_values(by='matching_score', ascending=False).head(5)
+
+        st.subheader("🏨 Top 5 Hotel Berdasarkan Emosi & Budget")
         st.dataframe(top_5[['Hotel Name', 'City', 'Min', 'Max', 'list_fasilitas', 'matching_score']])
-    else:
-        st.warning("⚠ Tidak ditemukan hotel dalam budget tersebut. Menampilkan tanpa filter budget.")
-        df['matching_score'] = df['list_fasilitas'].apply(
-            lambda x: count_matching_facilities(x, needed_keywords)
-        )
-        top_5 = df.sort_values(by='matching_score', ascending=False).head(5)
-        st.dataframe(top_5[['Hotel Name', 'City', 'Min', 'Max', 'list_fasilitas', 'matching_score']])
 
-    # ============ Content-based Filtering ============
+# ---------------------- TAB 2 -----------------------
+with tab2:
+    st.subheader("🔁 Content-Based Filtering dari Top 5")
     df['fasilitas_str'] = df['list_fasilitas'].apply(lambda x: ' '.join(map(str, x)))
     vectorizer = CountVectorizer()
-    facility_matrix = vectorizer.fit_transform(df['fasilitas_str'])
-    facility_sim = cosine_similarity(facility_matrix)
+    fasilitas_matrix = vectorizer.fit_transform(df['fasilitas_str'])
+    facility_sim = cosine_similarity(fasilitas_matrix)
 
     df['avg_price'] = (df['Min'] + df['Max']) / 2
     scaler = MinMaxScaler()
-    normalized_price = scaler.fit_transform(df[['avg_price']])
-    price_diff_matrix = np.abs(normalized_price - normalized_price.T)
-    price_sim = 1 - price_diff_matrix
-
+    norm_price = scaler.fit_transform(df[['avg_price']])
+    price_sim = 1 - np.abs(norm_price - norm_price.T)
     combined_sim = 0.7 * facility_sim + 0.3 * price_sim
-    top_5_indices = top_5.index.tolist()
-    sim_scores = np.mean(combined_sim[top_5_indices], axis=0)
 
+    top_indices = df.sort_values(by='avg_price').head(5).index.tolist()
+    sim_scores = np.mean(combined_sim[top_indices], axis=0)
     sorted_indices = np.argsort(sim_scores)[::-1]
-    content_based_indices = [i for i in sorted_indices if i not in top_5_indices][:10]
+    content_based_indices = [i for i in sorted_indices if i not in top_indices][:10]
 
     top_10_cb = df.iloc[content_based_indices].copy()
     top_10_cb['similarity_score'] = sim_scores[content_based_indices]
 
-    st.subheader("🔁 Rekomendasi Hotel Serupa (Content-Based)")
     st.dataframe(top_10_cb[['Hotel Name', 'City', 'Min', 'Max', 'list_fasilitas', 'similarity_score']])
 
-    # ========== PETA INTERAKTIF ==========
-    st.subheader("🗺️ Lokasi Hotel")
+# ---------------------- TAB 3 -----------------------
+with tab3:
+    st.subheader("🗺️ Peta Interaktif Hotel")
     m = folium.Map(location=[-2.5, 117.5], zoom_start=5)
-    marker_cluster = MarkerCluster().add_to(m)
+    cluster = MarkerCluster().add_to(m)
 
     for _, row in df.iterrows():
         if row['Hotel Rating'] != 'Belum ada rating':
-            image_url = row['Hotel Image'] if 'Hotel Image' in row and pd.notna(row['Hotel Image']) else ""
+            image_url = row['Hotel Image'] if pd.notna(row['Hotel Image']) else ""
             popup_html = f"""
                 <div style='width:200px'>
                     <b>{row['Hotel Name']}</b><br>
@@ -196,35 +191,33 @@ if st.button("🎯 Cari Rekomendasi Hotel"):
                     {'<img src="' + image_url + '" width="160">' if image_url else ''}
                 </div>
             """
-            iframe = folium.IFrame(html=popup_html, width=200, height=200)
-            popup = folium.Popup(iframe, max_width=250)
+            popup = folium.Popup(folium.IFrame(html=popup_html, width=200, height=200), max_width=250)
             folium.Marker(
                 location=[row['Lattitute'], row['Longitude']],
                 popup=row['Hotel Name'],
-                icon=folium.Icon(color='blue', icon='info-sign')
-            ).add_to(marker_cluster)
+                icon=folium.Icon(color='blue')
+            ).add_to(cluster)
 
     map_data = st_folium(m, width=800, height=500)
 
     if map_data and map_data.get("last_object_clicked_popup"):
         selected_hotel_name = map_data["last_object_clicked_popup"]
         st.success(f"🏨 Hotel dipilih: *{selected_hotel_name}*")
-        selected_hotel = df[df['Hotel Name'] == selected_hotel_name].iloc[0]
+        hotel = df[df['Hotel Name'] == selected_hotel_name].iloc[0]
 
         st.subheader("📋 Detail Hotel")
-        if pd.notna(selected_hotel['Hotel Image']):
-            st.image(selected_hotel['Hotel Image'], width=400)
-        st.markdown(f"*Nama:* {selected_hotel['Hotel Name']}")
-        st.markdown(f"*Lokasi:* {selected_hotel['City']}, {selected_hotel['Provinsi']}")
-        st.markdown(f"*Rating:* {selected_hotel['Hotel Rating']}")
-        st.markdown(f"*Harga:* Rp {int(selected_hotel['Min'])} - Rp {int(selected_hotel['Max'])}")
-        st.markdown(f"*Fasilitas:* {', '.join(selected_hotel['list_fasilitas'])}")
+        if pd.notna(hotel['Hotel Image']):
+            st.image(hotel['Hotel Image'], width=400)
+        st.markdown(f"*Nama:* {hotel['Hotel Name']}")
+        st.markdown(f"*Lokasi:* {hotel['City']}, {hotel['Provinsi']}")
+        st.markdown(f"*Rating:* {hotel['Hotel Rating']}")
+        st.markdown(f"*Harga:* Rp {int(hotel['Min'])} - Rp {int(hotel['Max'])}")
+        st.markdown(f"*Fasilitas:* {', '.join(hotel['list_fasilitas'])}")
 
-        st.subheader("Rekomendasi Hotel Serupa dari Hotel Ini")
-        similar_from_map = df[df['Hotel Name'] != selected_hotel_name].copy()
-        map_rekomendasi = content_based_recommendation(similar_from_map, selected_hotel_name)
+        st.subheader("Rekomendasi Serupa dari Hotel Ini")
+        map_recs = content_based_recommendation(df[df['Hotel Name'] != selected_hotel_name], selected_hotel_name)
 
-        for _, row in map_rekomendasi.iterrows():
+        for _, row in map_recs.iterrows():
             st.markdown(f"### 🏨 {row['Hotel Name']}")
             if pd.notna(row['Hotel Image']):
                 st.image(row['Hotel Image'], width=400)
