@@ -11,7 +11,7 @@ from streamlit_folium import st_folium
 st.markdown(
     """
     <div style="background-color:#e0f7fa;padding:10px 20px;border-radius:8px">
-        <h1 style="color:#006064;">🗺️ Jelajahi Hotel di Indonesia</h1>
+        <h1 style="color:#006064;">🏨 Sistem Rekomendasi Hotel di Indonesia</h1>
     </div>
     """,
     unsafe_allow_html=True
